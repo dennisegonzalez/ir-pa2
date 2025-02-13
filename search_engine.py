@@ -32,8 +32,19 @@ class Indexer:
         # self.stopwords = stopwords.words('english')
 
         if os.path.exists(dbfile):
+            """ In progrss by Hanna """
             # TODO. If these exists a saved corpus index file, load it.
             # (You may use pickle to save and load a python object.)
+            with open(dbfile, 'rb') as f:
+                corpus_index = pickle.load(f)
+                self.tok2idx = corpus_index['tok2idx']
+                self.idx2tok = corpus_index['idx2tok']
+                self.postings_lists = corpus_index'postings_lists']
+                self.docs = corpus_index['docs']
+                self.raw_ds = corpus_index['raw_ds']
+                self.corpus_stats = { 'avgdl': 0 }
+                self.stopwords = stopwords.words('english')
+                
             pass
         else:
             # TODO. Load CNN/DailyMail dataset, preprocess and create postings lists.
