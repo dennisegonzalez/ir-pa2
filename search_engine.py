@@ -6,6 +6,7 @@ from collections import defaultdict, Counter
 import pickle
 import math
 import operator
+import code
 
 from tqdm import tqdm
 from nltk import pos_tag
@@ -51,7 +52,7 @@ class Indexer:
             # TODO. complete this part
             pass
 
-    def create_postings_lists(self):
+    # def create_postings_lists(self):
         # TODO. This creates postings lists of your corpus
         # TODO. While indexing compute avgdl and document frequencies of your vocabulary
         # TODO. Save it, so you don't need to do this again in the next runs.
@@ -63,25 +64,28 @@ class SearchAgent:
     b = 0.75                # BM25 parameter b for document length normalization
 
     def __init__(self, indexer):
-        # TODO. set necessary parameters
         self.i = indexer
 
     def query(self, q_str):
-        # TODO. This is take a query string from a user, run the same clean_text process,
-        # TODO. Calculate BM25 scores
-        # TODO. Sort  the results by the scores in decsending order
-        # TODO. Display the result
+        toks = self.i.clean_text([q_str], query=True)
+        doc_scores = defaultdict(int)
 
-        results = {}
+        for tok in toks:
+            if tok in self.i.tok2idx:
+                idx = self.i.tok2idx[tok]
+                for docid, tf in self.i.postings_lists[idx]:
+                    doc_len = len(self.i.docs[docid])
+                    idf = math.log((self.i.corpus_stats['N'] - len(self.i.postings_lists[idx]) + 0.5) / len((self.i.postings_lists[idx]) + 0.5) + 1)
+                    doc_scores[docid] += idf * ((tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * (doc_len / self.i.corpus_stats['avgdl']))))
+
+        results = sorted(doc_scores.items(), key=operator.itemgetter(1), reverse=True)
         if len(results) == 0:
             return None
         else:
             self.display_results(results)
 
 
-    def display_results(self, results):
-        # Decode
-        # TODO, the following is an example code, you can change however you would like.
+    def display_results(self, results): 
         for docid, score in results[:5]:  # print top 5 results
             print(f'\nDocID: {docid}')
             print(f'Score: {score}')
