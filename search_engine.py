@@ -82,7 +82,7 @@ class Indexer:
             
                              
         with open(self.dbfile, 'wb') as f:
-            pickle.dump(self.tok2idx,self.idx2tok,self.postings_lists,self.docs,)
+            pickle.dump(self.tok2idx,self.idx2tok,self.postings_lists,self.docs)
 
 
 
