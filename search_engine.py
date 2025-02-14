@@ -32,7 +32,7 @@ class Indexer:
          self.corpus_stats = { 'avgdl': 0 }        # any corpus-level statistics
          self.stopwords = stopwords.words('english')
 
-         if os.path.exists(dbfile):
+         if os.path.exists(self.dbfile):
             # TODO. If these exists a saved corpus index file, load it.
             # (You may use pickle to save and load a python object.)
            with open(self.dbfile, 'rb') as f:
