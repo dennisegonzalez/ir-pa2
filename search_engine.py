@@ -14,9 +14,10 @@ from nltk.tokenize import RegexpTokenizer
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 from datasets import load_dataset
-
+import nltk
 
 class Indexer:
+    nltk.download('averaged_perceptron_tagger_eng')
     dbfile = "./ir.idx"  # file to save/load the index
 
     def __init__(self):
@@ -26,45 +27,63 @@ class Indexer:
         #     see fit.
          self.tok2idx = {}                       # map (token to id)
          self.idx2tok = []                       # map (id to token)
-         self.postings_lists = {}                # postings for each word
+         self.postings_lists = defaultdict(dict)                # postings for each word
          self.docs = []                            # encoded document list
          self.raw_ds = None                        # raw documents for result presentation
-         self.corpus_stats = { 'avgdl': 0 }        # any corpus-level statistics
+         self.corpus_stats = { 'N': 0, 'avgdl': 0 }        # any corpus-level statistics
          self.stopwords = stopwords.words('english')
+         self.lemmatizer = WordNetLemmatizer()
+         self.tokenizer = RegexpTokenizer(r'\w+')
 
          if os.path.exists(self.dbfile):
             # TODO. If these exists a saved corpus index file, load it.
             # (You may use pickle to save and load a python object.)
            with open(self.dbfile, 'rb') as f:
-                self.tok2idx,self.idx2tok,self.postings_lists,self.docs = pickle.load(f)
+                self.tok2idx,self.idx2tok,self.postings_lists,self.docs, self.raw_ds = pickle.load(f)
             
          else:
             # TODO. Load CNN/DailyMail dataset, preprocess and create postings lists.
             ds = load_dataset("cnn_dailymail", '3.0.0', split="test")
             self.raw_ds = ds['article']
-            self.clean_text(self.raw_ds)
+
+            self.clean_text(indexing = True)
+
+            print(f"Total documents processed: {len(self.docs)}")
+            if self.docs:
+                print(f"Sample document: {self.docs[0]}")
+
+
             self.create_postings_lists()
-            pass
 
-    def clean_text(self, lst_text, query=False):
-        # TODO. this function will run in two modes: indexing and query mode.
-        # TODO. run simple whitespace-based tokenizer (e.g., RegexpTokenizer)
-        # TODO. run lemmatizer (e.g., WordNetLemmatizer)
-        # TODO. read documents one by one and process
-        if query == True:
-            return [self.tok2idx[word] for word in lemmatized]
-        else:
-            lst_text = self.raw_ds
-            for l in tqdm(lst_text):
-                            # TODO. complete this part
-                            tokenized = RegexpTokenizer(r'\w+').tokenize(l.lower())
-                            lemmatized = [WordNetLemmatizer().lemmatize(word) for word in tokenized]
-                            for word in lemmatized:
-                                if word not in self.tok2idx:
-                                    self.tok2idx[word] = len(self.tok2idx)
-                                    self.idx2tok.append(word)
+    def clean_text(self, query=None, indexing = False):
+        lst_text = query if query else self.raw_ds  # Handle both cases
+        lengths = []
+        processed = []
 
-                            self.docs.append([self.tok2idx[word] for word in lemmatized])
+        print("Cleaning text...")
+
+        print(f"Processing {len(lst_text)} documents...")  # Debugging line
+
+        for l in tqdm(lst_text):
+            tokenized = self.tokenizer.tokenize(l.lower())
+            tagged = pos_tag(tokenized)
+            lemmatized = [self.lemmatizer.lemmatize(word) for word, tag in tagged if word.lower() not in self.stopwords]
+            
+
+            if lemmatized:
+                processed.append(lemmatized)
+                if indexing:  # FIXED: Ensure we append during indexing
+                    lengths.append(len(lemmatized))
+                    self.docs.append(lemmatized)
+                    print(f"Added documents of length {len(lemmatized)}")
+            else:
+                print(f"Skipping empty document after lemmatization: {l}")  # Debugging line
+        if indexing:
+            self.corpus_stats['N'] = len(self.docs)
+            self.corpus_stats['avgdl'] = sum(lengths) / len(lengths) if lengths else 0
+            print(f"Corpus stats: {self.corpus_stats}")
+
+        return processed if not indexing else None  # Only return tokens for queries
 
             
 
@@ -73,20 +92,19 @@ class Indexer:
         # TODO. While indexing compute avgdl and document frequencies of your vocabulary
         # TODO. Save it, so you don't need to do this again in the next runs.
         # Save
-        for document in enumerate(self.docs):
-             for word_index in document:
-                    if(word_index  in self.postings_lists):
-                       self.postings_lists[word_index][document]=self.postings_lists[word_index].get(document,0)+1
-                    else:
-                        self.postings_lists[word_index]={document:1}
-            
-                             
+        for doc_id, document in enumerate(self.docs):
+            tf = Counter(document)
+            for w, tf in tf.items():
+                if w not in self.tok2idx:
+                    self.tok2idx[w] = len(self.idx2tok)
+                    self.idx2tok.append(w)
+                word_index = self.tok2idx[w]
+                self.postings_lists[word_index][doc_id] = tf
+        
+        print(f"Number of words in index: {len(self.tok2idx)}")
+
         with open(self.dbfile, 'wb') as f:
-            pickle.dump(self.tok2idx,self.idx2tok,self.postings_lists,self.docs)
-
-
-
-                  
+            pickle.dump((self.tok2idx, self.idx2tok, self.postings_lists, self.docs, self.raw_ds), f)
 
 
 class SearchAgent:
@@ -97,25 +115,41 @@ class SearchAgent:
         self.i = indexer
 
     def query(self, q_str):
-        toks = self.i.clean_text([q_str], query=True)
-        doc_scores = defaultdict(int)
+        toks = self.i.clean_text([q_str])
+
+        print(f"Query tokens: {toks}")  # Debugging line
+
+        if not toks:
+            print("No tokens found in the query.")
+            return None
+        
+        toks = [word for sublist in toks for word in sublist]
+        doc_scores = defaultdict(float)
+
+        print(f"AvgDL: {self.i.corpus_stats['avgdl']}")
 
         for tok in toks:
-            if tok in self.i.tok2idx:
-                idx = self.i.tok2idx[tok]
-                for docid, tf in self.i.postings_lists[idx]:
-                    doc_len = len(self.i.docs[docid])
-                    idf = math.log((self.i.corpus_stats['N'] - len(self.i.postings_lists[idx]) + 0.5) / len((self.i.postings_lists[idx]) + 0.5) + 1)
-                    doc_scores[docid] += idf * ((tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * (doc_len / self.i.corpus_stats['avgdl']))))
+            if tok not in self.i.tok2idx:
+                continue
+            else:
+                word_index = self.i.tok2idx[tok]
+                if word_index in self.i.postings_lists:
+                    for docid, tf in self.i.postings_lists[word_index].items():
+                        doc_len = len(self.i.docs[docid])
+                        idf = math.log((self.i.corpus_stats['N'] - len(self.i.postings_lists[word_index]) + 0.5) / (len(self.i.postings_lists[word_index]) + 0.5) + 1)
+                        print(idf) # Debugging line
+                        doc_scores[docid] += idf * ((tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * (doc_len / self.i.corpus_stats['avgdl']))))
 
+        print("Sorting results...")  # Debugging line
         results = sorted(doc_scores.items(), key=operator.itemgetter(1), reverse=True)
-        if len(results) == 0:
-            return None
-        else:
-            self.display_results(results)
+        print("displaying results...")  # Debugging line
+        self.display_results(results)
 
 
     def display_results(self, results): 
+        if not results:
+            print("No results found.")
+            return
         for docid, score in results[:5]:  # print top 5 results
             print(f'\nDocID: {docid}')
             print(f'Score: {score}')
