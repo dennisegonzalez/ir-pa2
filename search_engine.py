@@ -40,6 +40,9 @@ class Indexer:
             # (You may use pickle to save and load a python object.)
            with open(self.dbfile, 'rb') as f:
                 self.tok2idx,self.idx2tok,self.postings_lists,self.docs, self.raw_ds = pickle.load(f)
+           self.corpus_stats['N'] = len(self.docs)
+           self.corpus_stats['avgdl'] = sum([len(doc) for doc in self.docs]) / len(self.docs)
+           
             
          else:
             # TODO. Load CNN/DailyMail dataset, preprocess and create postings lists.
@@ -54,6 +57,9 @@ class Indexer:
 
 
             self.create_postings_lists()
+            with open(self.dbfile, 'wb') as f:
+                pickle.dump((self.tok2idx, self.idx2tok, self.postings_lists, self.docs, self.raw_ds), f)
+
 
     def clean_text(self, query=None, indexing = False):
         lst_text = query if query else self.raw_ds  # Handle both cases
@@ -73,7 +79,7 @@ class Indexer:
             if lemmatized:
                 processed.append(lemmatized)
                 if indexing:  # FIXED: Ensure we append during indexing
-                    lengths.append(len(lemmatized))
+                    lengths.append(len(tokenized))
                     self.docs.append(lemmatized)
                     print(f"Added documents of length {len(lemmatized)}")
             else:
@@ -103,12 +109,10 @@ class Indexer:
         
         print(f"Number of words in index: {len(self.tok2idx)}")
 
-        with open(self.dbfile, 'wb') as f:
-            pickle.dump((self.tok2idx, self.idx2tok, self.postings_lists, self.docs, self.raw_ds), f)
-
+        
 
 class SearchAgent:
-    k1 = 1.5                # BM25 parameter k1 for tf saturation
+    k1 = 1.5             # BM25 parameter k1 for tf saturation
     b = 0.75                # BM25 parameter b for document length normalization
 
     def __init__(self, indexer):
@@ -137,7 +141,7 @@ class SearchAgent:
                     for docid, tf in self.i.postings_lists[word_index].items():
                         doc_len = len(self.i.docs[docid])
                         idf = math.log((self.i.corpus_stats['N'] - len(self.i.postings_lists[word_index]) + 0.5) / (len(self.i.postings_lists[word_index]) + 0.5) + 1)
-                        print(idf) # Debugging line
+                       
                         doc_scores[docid] += idf * ((tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * (doc_len / self.i.corpus_stats['avgdl']))))
 
         print("Sorting results...")  # Debugging line
@@ -154,7 +158,7 @@ class SearchAgent:
             print(f'\nDocID: {docid}')
             print(f'Score: {score}')
             print('Article:')
-            print(self.i.raw_ds[docid])
+            print(self.i.raw_ds[docid][:500] + '...')
 
 
 
